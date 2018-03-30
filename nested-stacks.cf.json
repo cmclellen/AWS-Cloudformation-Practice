@@ -1,0 +1,28 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Resources": {
+        "myStack": {
+            "Type": "AWS::CloudFormation::Stack",
+            "Properties": {
+                "TemplateUrl": "https://s3.amazonaws.com/cloudformation-templates-us-east-1/S3-Bucket.template",
+                "TimeoutInMinutes": "60"
+            }
+        },
+        "myStackWithParams": {
+            "Type": "AWS::CloudFormation::Stack",
+            "Properties": {
+                "TemplateUrl": "https://s3.amazonaws.com/cloudformation-templates-us-east-1/EC2ChooseAMI.template",
+                "Parameters": {
+                    "InstanceType": "t1.micro",
+                    "KeyName": "mykey"
+                }
+            }
+        }
+    },
+    "Outputs": {
+        "StackRef": {"Value": {"Ref": "mnyStack"}},
+        "OutputFromNestedStack": {
+            "Value": {"Fn::GetAtt": ["myStack", "Outputs.BucketName"]}
+        }
+    }
+}
