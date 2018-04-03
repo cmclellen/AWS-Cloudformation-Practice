@@ -1,0 +1,63 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Mappings": {
+        "RegionMap": {
+            "ap-southeast-2": {
+                "AMI": "ami-43874721"
+            }
+        }
+    },
+    "Resources": {
+        "LaunchConfig": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Properties": {
+                "ImageId": {"Fn::FindInMap": ["RegionMap", {"Ref": "AWS::Region"}, "AMI"]},
+                "InstanceType": "t2.micro",
+                "UserData": {"Fn::Base64": {
+                    "Fn::Join": ["", [
+                        "#!/bin/bash -xe\n",
+                        "yum update -y\n",
+                        "yum install -y aws-cfn-bootstrap\n",
+                        "/opt/aws/bin/cfn-signal -e 0 --stack ", {"Ref":"AWS::StackName"},
+                        " --resource ASG --region ", {"Ref": "AWS::Region"}, "\n"
+                    ]]
+                }}
+            }
+        },
+        "ASG": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "AvailabilityZones": {"Fn::GetAZs": ""},
+                "DesiredCapacity": "2",
+                "MinSize": "1",
+                "MaxSize": "3",
+                "LaunchConfigurationName": {"Ref": "LaunchConfig"}
+            },
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Count": "2",
+                    "Timeout": "PT10M"
+                }
+            },
+            "UpdatePolicy": {
+                "AutoScalingScheduledAction": {
+                    "IgnoreUnmodifiedGroupSizeProperties": "true"
+                },
+                "AutoScalingRollingUpdate": {
+                    "MinInstancesInService": "1",
+                    "MaxBatchSize": "2",
+                    "WaitOnResourceSignals": "true",
+                    "PauseTime": "PT10M"
+                }
+            }
+        },
+        "ScheduledAction": {
+            "Type": "AWS::AutoScaling::ScheduledAction",
+            "Properties": {
+                "AutoScalingGroupName": {"Ref": "ASG"},
+                "DesiredCapacity": "2",
+                "StartTime": "2018-04-03T19:10:00Z"
+            }
+        }
+    }
+}
