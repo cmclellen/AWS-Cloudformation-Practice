@@ -1,0 +1,93 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Mappings": {
+        "RegionMap": {
+            "ap-southeast-2": {
+                "AMI": "ami-43874721"
+            }
+        }
+    },
+    "Resources": {
+        "ELB": {
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Properties": {
+                "AvailabilityZones": { "Fn::GetAZs": "" },
+                "CrossZone": "true",
+                "Listeners": [{
+                    "LoadBalancerPort": "80",
+                    "InstancePort": "80",
+                    "Protocol": "HTTP"
+                }]
+            }
+        },
+        "ASG": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "AvailabilityZones": { "Fn::GetAZs": "" },
+                "LaunchConfigurationName": { "Ref": "LC" },
+                "DesiredCapacity": 2,
+                "MinSize": 2,
+                "MaxSize": 4,
+                "LoadBalancerNames": [{ "Ref": "ELB" }]
+            },
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Count": 2,
+                    "Timeout": "PT10M"
+                }
+            },
+            "UpdatePolicy": {
+                "AutoScalingScheduleAction": {
+                    "IgnoreUnmodifiedGroupSizePropeties": "true"
+                },
+                "AutoScalingRollingUpdate": {
+                    "MinInstanceInService": "1",
+                    "MaxBatchSize": "2",
+                    "WaitResourceSignals": "true",
+                    "PauseTime": "PT10M"
+                }
+            }
+        },
+        "LC": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Properties": {
+                "ImageId": { "Fn::FindInMap": ["RegionMap", { "Ref": "AWS::Region" }, "AMI"] },
+                "InstanceType": "t2.micro",
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": ["", [
+                            "#!/bin/bash -xe\n",
+                            "yum update -y\n",
+                            "yum install -y aws-cfn-bootstrap epel-release nginx\n",
+                            "service nginx start\n",
+                            "/opt/aws/bin/cfn-signal -e 0 --stack ", { "Ref": "AWS::StackName" }, " --resource ASG --region ", { "Ref": "AWS::Region" }, "\n"
+                        ]]
+                    }
+                },
+                "SecurityGroups": [{ "Ref": "SG" }]
+            }
+        },
+        "SG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Enabled HTTP access via port 80",
+                "SecurityGroupIngress": [{
+                    "IpProtocol": "tcp",
+                    "FromPort": "80",
+                    "ToPort": "80",
+                    "CidrIp": "0.0.0.0/0"
+                }]
+            }
+        }
+    },
+    "Outputs": {
+        "URL": {
+            "Description": "The URL of the website.",
+            "Value": {
+                "Fn::Join": ["", [
+                    "http://", { "Fn::GetAtt": ["ELB", "DNSName"] }
+                ]]
+            }
+        }
+    }
+}
