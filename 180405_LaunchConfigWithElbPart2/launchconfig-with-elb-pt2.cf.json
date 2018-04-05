@@ -1,0 +1,122 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Mappings": {
+        "RegionMap": {
+            "ap-southeast-2": { "AMI": "ami-43874721" }
+        }
+    },
+    "Resources": {
+        "ASG": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "AvailabilityZones": { "Fn::GetAZs": "" },
+                "LaunchConfigurationName": { "Ref": "LC" },
+                "DesiredCapacity": "2",
+                "MinSize": "2",
+                "MaxSize": "4",
+                "LoadBalancerNames": [{ "Ref": "ELB" }]
+            },
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Count": "2",
+                    "Timeout": "PT10M"
+                }
+            },
+            "UpdatePolicy": {
+                "AutoScalingScheduleAction": {
+                    "IgnoreUnmodifiedGroupSizeProperties": "true"
+                },
+                "AutoScalingRollingUpdate": {
+                    "MinInstanceInService": "1",
+                    "MaxBatchSize": "2",
+                    "WaitResourceSignals": "true",
+                    "PauseTime": "PT10M"
+                }
+            }
+        },
+        "LC": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Metadata": {
+                "AWS::CloudFormation::Init": {
+                    "config": {
+                        "packages": {
+                            "yum": {
+                                "nginx": []
+                            }
+                        }
+                    },
+                    "files": {
+                        "/var/www/html/index.html": {
+                            "content": {
+                                "Fn::Join": ["", [
+                                    "hello world"
+                                ]]
+                            }
+                        }
+                    },
+                    "services": {
+                        "sysvinit": {
+                            "nginx": {
+                                "enabled": "true",
+                                "ensureRunning": "true",
+                                "files": ["/etc/nginx/nginx.conf"],
+                                "sources": ["/var/www/html"]
+                            }
+                        }
+                    }
+                }
+            },
+            "Properties": {
+                "SecurityGroups": [{ "Ref": "SG" }],
+                "ImageId": { "Fn::FindInMap": ["RegionMap", { "Ref": "AWS::Region" }, "AMI"] },
+                "InstanceType": "t2.micro",
+                "KeyName": "MyNewEC2KeyPair",
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": ["", [
+                            "#!/bin/bash -xe\n",
+                            "yum update -y\n",
+                            "yum install -y aws-cfn-bootstrap\n",
+                            "/opt/aws/bin/cfn-init -v --stack ", { "Ref": "AWS::StackName" }, " --resource LC --region ", { "Ref": "AWS::Region" }, "\n",
+                            "/opt/aws/bin/cfn-signal -e $? --stack ", { "Ref": "AWS::StackName" }, " --resource ASG --region ", { "Ref": "AWS::Region" }, "\n"
+                        ]]
+                    }
+                }
+            }
+        },
+        "ELB": {
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Properties": {
+                "AvailabilityZones": { "Fn::GetAZs": "" },
+                "CrossZone": "true",
+                "Listeners": [{
+                    "LoadBalancerPort": "80",
+                    "InstancePort": "80",
+                    "Protocol": "http"
+                }]
+            }
+        },
+        "SG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Enable HTTP access",
+                "SecurityGroupIngress": [{
+                    "IpProtocol": "tcp",
+                    "FromPort": "80",
+                    "ToPort": "80",
+                    "CidrIp": "0.0.0.0/0"
+                }, {
+                    "IpProtocol": "tcp",
+                    "FromPort": "22",
+                    "ToPort": "22",
+                    "CidrIp": "0.0.0.0/0"
+                }]
+            }
+        }
+    },
+    "Outputs": {
+        "URL": {
+            "Value": { "Fn::Join": ["", ["http://", { "Fn::GetAtt": ["ELB", "DNSName"] }]] }
+        }
+    }
+}
