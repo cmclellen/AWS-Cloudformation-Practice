@@ -37,40 +37,42 @@
         "LC": {
             "Type": "AWS::AutoScaling::LaunchConfiguration",
             "Metadata": {
+                "Comment1" : "Configure the bootstrap helpers to install the NGINX Server",
+                "Comment2" : "Save website content to /var/www/html/index.html",
                 "AWS::CloudFormation::Init": {
                     "config": {
                         "packages": {
                             "yum": {
                                 "nginx": []
                             }
-                        }
-                    },
-                    "files": {
-                        "/var/www/html/index.html": {
-                            "content": {
-                                "Fn::Join": ["", [
-                                    "hello world"
-                                ]]
+                        },
+                        "files": {
+                            "/usr/share/nginx/html/index.html": {
+                                "content": {
+                                    "Fn::Join": ["", [
+                                        "<html>",
+                                        "   hello world",
+                                        "</html>"
+                                    ]]
+                                }
+                            }
+                        },
+                        "services": {
+                            "sysvinit": {
+                                "nginx": {
+                                    "enabled": "true",
+                                    "ensureRunning": "true"
+                                }
                             }
                         }
-                    },
-                    "services": {
-                        "sysvinit": {
-                            "nginx": {
-                                "enabled": "true",
-                                "ensureRunning": "true",
-                                "files": ["/etc/nginx/nginx.conf"],
-                                "sources": ["/var/www/html"]
-                            }
-                        }
-                    }
+                    }                    
                 }
             },
             "Properties": {
                 "SecurityGroups": [{ "Ref": "SG" }],
                 "ImageId": { "Fn::FindInMap": ["RegionMap", { "Ref": "AWS::Region" }, "AMI"] },
                 "InstanceType": "t2.micro",
-                "KeyName": "MyNewEC2KeyPair",
+                "KeyName": "WorkNUC",
                 "UserData": {
                     "Fn::Base64": {
                         "Fn::Join": ["", [
