@@ -1,0 +1,96 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Parameters": {
+        "InstanceType": {
+            "Type": "String",
+            "AllowedValues": ["t2.micro", "t2.nano"],
+            "Default": "t2.micro"
+        },
+        "SSHLocation": {
+            "Type": "String",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+            "Default": "0.0.0.0/0"
+        },
+        "KeyName": {
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Default": "MyNewEC2KeyPair"
+        }
+    },
+    "Mappings": {
+        "AMIs": {
+            "ap-southeast-2": {
+                "Name": "ami-43874721"
+            }
+        }
+    },
+    "Resources": {
+        "ec2": {
+            "Type": "AWS::EC2::Instance",
+            "Properties": {
+                "ImageId": {"Fn::FindInMap": ["AMIs", {"Ref": "AWS::Region"}, "Name"]},
+                "InstanceType": {"Ref": "InstanceType"},
+                "SecurityGroups": [{"Ref": "sg"}],
+                "Tags": [{"Key": "Name", "Value": "Test"}],
+                "KeyName": {"Ref": "KeyName"},
+                "IamInstanceProfile": {"Ref": "listS3BucketsInstanceProfile"}
+            }
+        },
+        "sg": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "ec2 security group",
+                "SecurityGroupIngress": [{
+                    "IpProtocol": "tcp",
+                    "FromPort": "80",
+                    "ToPort": "80",
+                    "CidrIp": "0.0.0.0/0"
+                }, {
+                    "IpProtocol": "tcp",
+                    "FromPort": "22",
+                    "ToPort": "22",
+                    "CidrIp": {"Ref": "SSHLocation"}
+                }]
+            }
+        },
+        "listS3BucketsInstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Path": "/",
+                "Roles": [{"Ref":"listS3BucketsRole"}]
+            }
+        },
+        "listS3BucketsRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "Path": "/",
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {"Service": ["ec2.amazonaws.com"]},
+                        "Action": ["sts:AssumeRole"]
+                    }]
+                }
+            }
+        },        
+        "listS3BucketsPolicy": {
+            "Type": "AWS::IAM::Policy",
+            "Properties": {
+                "PolicyName": "ListS3BucketsPolicy",
+                "PolicyDocument": {
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Action": ["s3:List*"],
+                        "Resource": "*"
+                    }]
+                },
+                "Roles": [{"Ref": "listS3BucketsRole"}]
+            }
+        }
+    },
+    "Outputs": {
+        "PublicIP": {
+            "Value": {"Fn::GetAtt": ["ec2", "PublicIp"]}
+        }
+    }
+}
