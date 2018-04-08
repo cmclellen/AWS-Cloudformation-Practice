@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set STACK_NAME=craig444
+set STACK_NAME=craig4441
 
 call aws cloudformation validate-template --template-body file://ec2-with-instanceprofile.cf.json
 if %errorlevel% neq 0 goto error

@@ -56,7 +56,7 @@
         "LC": {
             "Type": "AWS::AutoScaling::LaunchConfiguration",
             "Metadata": {
-                "AWS::Cloudformation::Init": {
+                "AWS::CloudFormation::Init": {
                     "config": {
                         "packages": {
                             "yum": {
