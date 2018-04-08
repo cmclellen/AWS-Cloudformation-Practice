@@ -1,0 +1,186 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Parameters": {
+        "InstanceType": {
+            "Type": "String",
+            "AllowedValues": ["t2.micro", "t2.nano"],
+            "Default": "t2.micro"
+        },
+        "SSHLocation": {
+            "Type": "String",
+            "Default": "0.0.0.0/0",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+        },
+        "KeyName": {
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Default": "MyNewEC2KeyPair"
+        }
+    },
+    "Mappings": {
+        "AMIs": {
+            "ap-southeast-2": {
+                "Name": "ami-43874721"
+            }
+        } 
+    },
+    "Resources": {
+        "ASG": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "DesiredCapacity": "2",
+                "MinSize": "1",
+                "MaxSize": "3",
+                "LaunchConfigurationName": {"Ref": "LC"},
+                "AvailabilityZones": {"Fn::GetAZs": ""},
+                "LoadBalancerNames": [{"Ref": "ELB"}]
+            }
+        },
+        "ELB": {
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Properties": {
+                "AvailabilityZones": {"Fn::GetAZs": ""},
+                "CrossZone": "true",
+                "Listeners": [{
+                    "Protocol": "http",
+                    "LoadBalancerPort": "80",
+                    "InstancePort": "80"
+                }]
+            },
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Timeout": "PT10M",
+                    "Count": "2"
+                }
+            }
+        },
+        "LC": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Metadata": {
+                "AWS::Cloudformation::Init": {
+                    "config": {
+                        "packages": {
+                            "yum": {
+                                "nginx": []
+                            }
+                        },
+                        "files": {
+                            "/usr/share/nginx/html/index.html": {
+                                "content": {
+                                    "Fn::Join": ["", [
+                                        "It worked"
+                                    ]]
+                                }
+                            }
+                        },
+                        "services": {
+                            "sysvinit": {
+                                "nginx": {
+                                    "enabled": "true",
+                                    "ensureRunning": "true"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "Properties": {
+                "ImageId": {"Fn::FindInMap": ["AMIs", {"Ref": "AWS::Region"}, "Name"]},
+                "InstanceType": {"Ref": "InstanceType"},
+                "SecurityGroups": [{"Ref": "SG"}],
+                "IamInstanceProfile": {"Ref": "ListS3InstanceProfile"},
+                "KeyName": {"Ref": "KeyName"},
+                "UserData": {"Fn::Base64": {
+                    "Fn::Join": ["", [
+                        "#!/bin/bash -xe\n",
+                        "yum update -y\n",
+                        "yum install -y aws-cfn-bootstrap\n",
+                        "/opt/aws/bin/cfn-init -v --stack ",{"Ref": "AWS::StackName"}," --resource LC --region ",{"Ref": "AWS::Region"},"\n",
+                        "/opt/aws/bin/cfn-signal -e $? --stack ",{"Ref": "AWS::StackName"}," --resource ASG --region ",{"Ref": "AWS::Region"},"\n"
+                    ]]
+                }}
+            }
+        },
+        "ListS3InstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Path": "/",
+                "Roles": [{"Ref": "ListS3Role"}]
+            }
+        },
+        "ListS3Role": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "Path": "/",
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {"Service": ["ec2.amazonaws.com"]},
+                        "Action": ["sts:AssumeRole"]
+                    }]
+                },
+                "Policies": [{
+                    "PolicyName": "ListS3Policy",
+                    "PolicyDocument": {
+                        "Version" : "2012-10-17",
+                        "Statement": [{
+                            "Effect": "Allow",
+                            "Action": ["s3:List*"],
+                            "Resource": "*"
+                        }]
+                    }
+                }]
+            }
+        },
+        "SG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "SG for SSH and HTTP access",
+                "SecurityGroupIngress": [{
+                    "IpProtocol": "tcp",
+                    "FromPort": "80",
+                    "ToPort": "80",
+                    "CidrIp": "0.0.0.0/0"
+                }, {
+                    "IpProtocol": "tcp",
+                    "FromPort": "22",
+                    "ToPort": "22",
+                    "CidrIp": {"Ref": "SSHLocation"}
+                }]
+            }
+        },
+        "ScalingUpPolicy": {
+            "Type": "AWS::AutoScaling::ScalingPolicy",
+            "Properties": {
+                "AdjustmentType": "ChangeInCapacity",
+                "Cooldown": "1",
+                "ScalingAdjustment": "1",
+                "AutoScalingGroupName": {"Ref": "ASG"}
+            }
+        },
+        "CPUAlarmHigh": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "MetricName": "CPUUtilization",
+                "ComparisonOperator": "GreaterThanThreshold",
+                "Threshold": "10",
+                "EvaluationPeriods": "1",
+                "Period": "60",
+                "Statistic": "Average",
+                "Namespace": "AWS/EC2",
+                "AlarmActions": [{"Ref": "ScalingUpPolicy"}],
+                "Dimensions": [{
+                    "Name": "AutoScalingGroupName",
+                    "Value": {"Ref": "ASG"}
+                }]
+            }
+        }
+    },
+    "Outputs": {
+        "URL": {
+            "Value": {"Fn::Join": ["", [
+                "http://", {"Fn::GetAtt": ["ELB", "DNSName"]}
+            ]]}
+        }
+    }
+}
