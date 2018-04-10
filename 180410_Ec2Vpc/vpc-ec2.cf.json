@@ -1,0 +1,145 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Mappings": {
+        "AMIs": {
+            "ap-southeast-2": {
+                "Name": "ami-43874721"
+            }
+        }
+    },
+    "Resources": {
+        "vpc": {
+            "Type": "AWS::EC2::VPC",
+            "Properties": {
+                "CidrBlock": "10.0.0.0/16",
+                "InstanceTenancy": "default",
+                "Tags": [{
+                    "Key": "owner",
+                    "Value": "craig"
+                }]
+            }
+        },
+        "IGW": {
+            "Type": "AWS::EC2::InternetGateway",
+            "Properties": {
+
+            }
+        },
+        "VPCGWAttachment": {
+            "Type": "AWS::EC2::VPCGatewayAttachment",
+            "Properties": {
+                "VpcId": {"Ref": "vpc"},
+                "InternetGatewayId": {"Ref": "IGW"}
+            }
+        },
+        "SubnetA": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "CidrBlock": "10.0.1.0/24",
+                "VpcId": {"Ref": "vpc"},
+                "MapPublicIpOnLaunch": "true",
+                "AvailabilityZone": {"Fn::Select": ["0", {"Fn::GetAZs": ""}]}
+            }
+        },
+        "RT": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {"Ref": "vpc"}
+            }
+        },
+        "InternetRoute": {
+            "Type": "AWS::EC2::Route",
+            "Properties": {
+                "RouteTableId": {"Ref": "RT"},
+                "GatewayId": {"Ref": "IGW"},
+                "DestinationCidrBlock": "0.0.0.0/0"
+            }
+        },
+        "SubnetARouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "RouteTableId": {"Ref": "RT"},
+                "SubnetId": {"Ref": "SubnetA"}
+            }
+        },
+        "SG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "SSH traffic in, all traffic out",
+                "VpcId": {"Ref": "vpc"},
+                "SecurityGroupIngress": [{
+                    "IpProtocol": "tcp",
+                    "FromPort": "22",
+                    "ToPort": "22",
+                    "CidrIp": "0.0.0.0/0"
+                }, {
+                    "IpProtocol": "tcp",
+                    "FromPort": "80",
+                    "ToPort": "80",
+                    "CidrIp": "0.0.0.0/0"
+                }],
+                "SecurityGroupEgress": [{
+                    "IpProtocol": "-1",
+                    "CidrIp": "0.0.0.0/0"
+                }]
+            }
+        },
+        "ec2": {
+            "Type": "AWS::EC2::Instance",
+            "Metadata": {
+                "AWS::CloudFormation::Init": {
+                    "config": {
+                        "packages": {
+                            "yum": {
+                                "nginx": []
+                            }
+                        },
+                        "files": {
+                            "/usr/share/nginx/html/index.html": {
+                                "content": { "Fn::Join": ["", [
+                                    "<html>It's working!!</html>"
+                                ]]}
+                            }
+                        },
+                        "services": {
+                            "sysvinit": {
+                                "nginx": {
+                                    "enabled": "true",
+                                    "ensureRunning": "true"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "Properties": {
+                "ImageId": {"Fn::FindInMap": ["AMIs", {"Ref": "AWS::Region"}, "Name"]},
+                "InstanceType": "t2.micro",
+                "SubnetId": {"Ref": "SubnetA"},
+                "KeyName": "MyNewEC2KeyPair",
+                "SecurityGroupIds" : [{ "Ref" : "SG" }],
+                "Tags": [{
+                    "Key": "owner",
+                    "Value": "craig"
+                }],
+                "UserData": {"Fn::Base64": {"Fn::Join": ["", [
+                    "#!/bin/bash -xe\n",
+                    "yum update -y\n",
+                    "yum install -y aws-cfn-bootstrap\n",
+                    "/opt/aws/bin/cfn-init -v --stack ",{"Ref": "AWS::StackName"}," --resource ec2 --region ",{"Ref": "AWS::Region"},"\n",
+                    "/opt/aws/bin/cfn-signal -e $? --stack ",{"Ref": "AWS::StackName"}," --resource ec2 --region ",{"Ref": "AWS::Region"},"\n"
+                ]]}}
+            },
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Timeout": "PT10M"
+                }
+            }
+        }
+    },
+    "Outputs": {
+        "url": {
+            "Value": {"Fn::Join": ["", ["http://", {"Fn::GetAtt": ["ec2", "PublicIp"]}]]}
+        }
+    }
+}
