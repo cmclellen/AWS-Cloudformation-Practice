@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  MyKeyName:
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Default: "MyNewEC2KeyPair"
+
+Mappings:
+  RegionMap:
+    ap-southeast-2:
+      AMI: "ami-43874721"
+
+Resources:
+
+  MySG:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Allow SSH and HTTP"
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+
+  MyEC2:
+    Type: "AWS::EC2::Instance"
+    Metadata:
+      AWS::CloudFormation::Init:
+        config: 
+          packages:
+            yum:
+              nginx: []
+          files:
+            /usr/share/nginx/html/index.html:
+              content: !Sub |
+                <html>
+                  Hello world!!
+                </html>
+          services:
+            sysvinit:
+              nginx:
+                enabled: true
+                ensureRunning: true
+
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", "AMI"]
+      InstanceType: "t2.micro"
+      KeyName: !Ref "MyKeyName"
+      SecurityGroupIds: 
+      - !Ref "MySG"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum update -y
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource MyEC2 --region ${AWS::Region}
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource MyEC2 --region ${AWS::Region}
+
+    CreationPolicy:
+      ResourceSignal: 
+        Count: 1
+        Timeout: PT10M
+
+Outputs:
+  URL:
+    Value: 
+      Fn::Join
+        - ''
+        - - "http://"
+          - !GetAtt ["MyEC2", "PublicIp"]
