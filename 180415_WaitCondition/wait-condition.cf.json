@@ -1,0 +1,147 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Parameters": {
+        "KeyName": {
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Default": "MyNewEC2KeyPair"
+        }
+    },
+    "Mappings": {
+        "RegionMap": {
+            "ap-southeast-2": {
+                "Name": "ami-43874721"
+            }
+        }
+    },
+    "Resources": {
+        "ELB": {
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Properties": {
+                "AvailabilityZones": {"Fn::GetAZs": ""},
+                "CrossZone": "true",
+                "Listeners": [{
+                    "Protocol": "http",
+                    "LoadBalancerPort": "80",
+                    "InstancePort": "80"
+                }] 
+            }            
+        },
+        "ASG": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "DesiredCapacity": "1",
+                "MinSize": "1",
+                "MaxSize": "1",
+                "AvailabilityZones": {"Fn::GetAZs": ""},
+                "LaunchConfigurationName": {"Ref": "LC"},
+                "LoadBalancerNames": [{"Ref": "ELB"}]
+            },
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Count": "1",
+                    "Timeout": "PT5M"
+                }
+            }          
+        },
+        "LC": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Metadata": {
+                "AWS::CloudFormation::Init": {
+                    "config": {
+                        "packages": {
+                            "yum": {
+                                "nginx": []
+                            }
+                        },
+                        "files": {
+                            "/usr/share/nginx/html/index.html": {
+                                "content": {"Fn::Join": ["", [
+                                    "It worked!!"
+                                ]]}
+                            }
+                        },
+                        "services": {
+                            "sysvinit": {
+                                "nginx": {
+                                    "enabled": "true",
+                                    "ensureRunning": "true"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "Properties": {
+                "ImageId": {"Fn::FindInMap": ["RegionMap", {"Ref": "AWS::Region"}, "Name"]},
+                "InstanceType": "t2.micro",
+                "KeyName": {"Ref": "KeyName"},
+                "SecurityGroups": [{"Ref": "SG"}],
+                "IamInstanceProfile": {"Ref": "S3IP"},
+                "UserData": {"Fn::Base64": {"Fn::Join": ["", [
+                    "#!/bin/bash -xe\n",
+                    "yum update -y\n",
+                    "yum install -y aws-cfn-bootstrap\n",
+                    "/opt/aws/bin/cfn-init -v --stack ",{"Ref": "AWS::StackName"}," --resource LC --region ",{"Ref": "AWS::Region"},"\n",
+                    "/opt/aws/bin/cfn-signal -e $? --stack ",{"Ref": "AWS::StackName"}," --resource ASG --region ",{"Ref": "AWS::Region"},"\n"
+                ]]}}
+            }
+        },
+        "S3IP": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Path": "/",
+                "Roles": [{"Ref": "S3Role"}]
+            }
+        },
+        "S3Role": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "Path": "/",
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {"Service": ["ec2.amazonaws.com"]},
+                        "Action": ["sts:AssumeRole"]
+                    }]
+                },
+                "Policies": [{
+                    "PolicyName": "ListS3Policy",
+                    "PolicyDocument": {
+                        "Version": "2012-10-17",
+                        "Statement": {
+                            "Effect": "Allow",
+                            "Action": ["s3:List*"],
+                            "Resource": "*"
+                        }
+                    }
+                }]
+            }
+        },
+        "SG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "SSH and HTTP access",
+                "SecurityGroupIngress": [{
+                    "IpProtocol": "tcp",
+                    "FromPort": "22",
+                    "ToPort": "22",
+                    "CidrIp": "0.0.0.0/0"
+                }, {
+                    "IpProtocol": "tcp",
+                    "FromPort": "80",
+                    "ToPort": "80",
+                    "CidrIp": "0.0.0.0/0"
+                }]
+            }
+        }
+    },
+    "Outputs": {
+        "URL": {
+            "Value": {"Fn::Join": ["", [
+                "http://",
+                {"Fn::GetAtt": ["ELB", "DNSName"]}
+            ]]}
+        }
+    }
+}
